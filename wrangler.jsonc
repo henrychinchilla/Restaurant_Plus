@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "restaurantplus_db",
-      "database_id": "local_db_id",
+      "database_id": "59a72c3a-4c5e-4010-86d4-b0cb55f7b91b",
       "migrations_dir": "migrations"
     }
   ],

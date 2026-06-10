@@ -11,6 +11,11 @@
       "/api/*"
     ]
   },
+  "triggers": {
+    "crons": [
+      "0 14 * * *"
+    ]
+  },
   "d1_databases": [
     {
       "binding": "DB",

@@ -51,6 +51,10 @@ export default {
 
     // Default: serve static assets
     return env.ASSETS.fetch(request);
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleScheduled(env));
   }
 };
 
@@ -62,11 +66,15 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     const loyaltyStrategy = await getConfig(env.DB, 'loyalty_strategy', 'none');
     const discountVal = await getConfig(env.DB, 'loyalty_discount_value', '10% de descuento');
     const pointsVal = await getConfig(env.DB, 'loyalty_points_value', '50 puntos');
+    const campaignStart = await getConfig(env.DB, 'campaign_start', '2026-06-01');
+    const campaignEnd = await getConfig(env.DB, 'campaign_end', '2026-12-31');
 
     return Response.json({
       loyalty_strategy: loyaltyStrategy,
       loyalty_discount_value: discountVal,
-      loyalty_points_value: pointsVal
+      loyalty_points_value: pointsVal,
+      campaign_start: campaignStart,
+      campaign_end: campaignEnd
     });
   }
 
@@ -161,7 +169,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
       const emailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px;">
-          <h2 style="color: #b91c1c; text-align: center; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px; margin-top: 0;">Restaurant Plus</h2>
+          <h2 style="color: #c41230; text-align: center; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px; margin-top: 0;">Chili's</h2>
           <p>Hola <strong>${data.customer_name}</strong>,</p>
           <p>Queremos agradecerte sinceramente por tomarte el tiempo para completar nuestra encuesta de satisfacción sobre tu reciente visita.</p>
           <p>Tu opinión es extremadamente valiosa para nosotros y nos ayuda a mejorar continuamente la calidad de nuestros alimentos, el ambiente y el servicio que te ofrecemos.</p>
@@ -171,7 +179,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           <p>Ten por seguro que daremos seguimiento a todas tus observaciones para garantizar que cada visita tuya sea una experiencia excelente.</p>
           <p style="margin-top: 30px;">Atentamente,</p>
           <p style="font-weight: bold; color: #111827; margin: 0;">La Gerencia</p>
-          <p style="color: #9ca3af; font-size: 12px; margin-top: 5px;">Restaurant Plus - Calidad y Servicio</p>
+          <p style="color: #9ca3af; font-size: 12px; margin-top: 5px;">Chili's - Calidad y Servicio</p>
         </div>
       `;
 
@@ -186,13 +194,13 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         Ten por seguro que daremos seguimiento a todas tus observaciones.
         
         Atentamente,
-        La Gerencia - Restaurant Plus
+        La Gerencia - Chili's
       `;
 
       await env.EMAIL.send({
         to: data.customer_email,
-        from: { email: fromEmail, name: "Restaurant Plus" },
-        subject: "¡Gracias por tu opinión! - Restaurant Plus",
+        from: { email: fromEmail, name: "Chili's" },
+        subject: "¡Gracias por tu opinión! - Chili's",
         html: emailHtml,
         text: emailText
       });
@@ -240,7 +248,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
 
           await env.EMAIL.send({
             to: mgrEmail,
-            from: { email: fromEmail, name: "Sistema Alertas Restaurant Plus" },
+            from: { email: fromEmail, name: "Sistema Alertas Chili's" },
             subject: `Alerta Encuesta: ${data.food_rating < 7 || data.waiter_rating < 3 ? '🔴 Puntuación Baja' : '🟢 Nueva Encuesta'} - ${data.customer_name}`,
             html: alertHtml,
             text: `Nueva encuesta recibida de ${data.customer_name}. Teléfono: ${data.customer_phone}. Calificaciones: Alimentos ${data.food_rating}/10, Servicio ${data.waiter_rating}/5. Comentario: ${data.comments || 'Ninguno'}.`
@@ -290,6 +298,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     const managerPhone = await getConfig(env.DB, 'manager_phone', '');
     const managerNotifs = await getConfig(env.DB, 'manager_notifications_enabled', 'false');
     const adminPassword = await getConfig(env.DB, 'admin_password', 'restaurantplus2026');
+    const campaignStart = await getConfig(env.DB, 'campaign_start', '2026-06-01');
+    const campaignEnd = await getConfig(env.DB, 'campaign_end', '2026-12-31');
 
     return Response.json({
       loyalty_strategy: loyaltyStrategy,
@@ -298,7 +308,9 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       manager_email: managerEmail,
       manager_phone: managerPhone,
       manager_notifications_enabled: managerNotifs,
-      admin_password: adminPassword
+      admin_password: adminPassword,
+      campaign_start: campaignStart,
+      campaign_end: campaignEnd
     });
   }
 
@@ -314,6 +326,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     if (data.manager_phone !== undefined) updates.push(setConfig(env.DB, 'manager_phone', data.manager_phone));
     if (data.manager_notifications_enabled !== undefined) updates.push(setConfig(env.DB, 'manager_notifications_enabled', data.manager_notifications_enabled));
     if (data.admin_password !== undefined) updates.push(setConfig(env.DB, 'admin_password', data.admin_password));
+    if (data.campaign_start !== undefined) updates.push(setConfig(env.DB, 'campaign_start', data.campaign_start));
+    if (data.campaign_end !== undefined) updates.push(setConfig(env.DB, 'campaign_end', data.campaign_end));
 
     await Promise.all(updates);
 
@@ -333,20 +347,20 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     }
 
     const emailHost = new URL(request.url).hostname;
-    const fromEmail = `reportes@${emailHost.includes('localhost') || emailHost.includes('127.0.0.1') ? 'restaurantplus.com' : emailHost}`;
+    const fromEmail = `reportes@${emailHost.includes('localhost') || emailHost.includes('127.0.0.1') ? 'chilis-encuestas.com' : emailHost}`;
     
     const reportHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px;">
-        <h2 style="color: #b91c1c; text-align: center; margin-top: 0; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px;">Reporte de KPIs de Satisfacción</h2>
+        <h2 style="color: #c41230; text-align: center; margin-top: 0; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px;">Reporte de KPIs de Satisfacción</h2>
         <p>Hola,</p>
-        <p>A continuación se detalla el reporte acumulado del estado de satisfacción del cliente para <strong>Restaurant Plus</strong>.</p>
+        <p>A continuación se detalla el reporte acumulado del estado de satisfacción del cliente para <strong>Chili's</strong>.</p>
         
         <div style="background-color: #f9fafb; padding: 15px; border-radius: 6px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #111827;">Resumen General</h3>
           <p style="margin: 5px 0;"><strong>Total de Encuestas Recibidas:</strong> ${stats.total_responses}</p>
         </div>
 
-        <h3 style="color: #b91c1c; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Métricas del Servicio (1 - 10)</h3>
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Métricas del Servicio (1 - 10)</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
           <tr style="background-color: #f9fafb;">
             <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Preparación Alimentos:</strong></td>
@@ -366,7 +380,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           </tr>
         </table>
 
-        <h3 style="color: #b91c1c; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Atención y Staff (1 - 5)</h3>
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Atención y Staff (1 - 5)</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
           <tr style="background-color: #f9fafb;">
             <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Servicio y Atención Mesero:</strong></td>
@@ -382,7 +396,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           </tr>
         </table>
 
-        <h3 style="color: #b91c1c; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Métricas del Evento Karaoke (1 - 5)</h3>
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Métricas del Evento Karaoke (1 - 5)</h3>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
           <tr style="background-color: #f9fafb;">
             <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Petición de Canción (Repertorio):</strong></td>
@@ -394,7 +408,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           </tr>
         </table>
 
-        <h3 style="color: #b91c1c; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Últimos Comentarios</h3>
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px;">Últimos Comentarios</h3>
         <div style="max-height: 200px; overflow-y: auto; font-size: 13px; color: #4b5563;">
           ${stats.recent_comments.length === 0 ? '<p>No hay comentarios.</p>' : stats.recent_comments.map((c: any) => `
             <div style="border-bottom: 1px solid #f3f4f6; padding: 8px 0;">
@@ -404,16 +418,16 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
           `).join('')}
         </div>
 
-        <p style="margin-top: 30px; font-size: 12px; color: #9ca3af; text-align: center;">Este es un reporte automático enviado por el sistema Restaurant Plus.</p>
+        <p style="margin-top: 30px; font-size: 12px; color: #9ca3af; text-align: center;">Este es un reporte automático enviado por el sistema de encuestas de Chili's.</p>
       </div>
     `;
 
     await env.EMAIL.send({
       to: mgrEmail,
-      from: { email: fromEmail, name: "Reportes Restaurant Plus" },
-      subject: "Reporte de KPIs de Satisfacción - Restaurant Plus",
+      from: { email: fromEmail, name: "Reportes Chili's" },
+      subject: "Reporte de KPIs de Satisfacción - Chili's",
       html: reportHtml,
-      text: `Reporte de KPIs para Restaurant Plus. Total de encuestas: ${stats.total_responses}. Alimentos: ${stats.avg_food.toFixed(2)}/10, Ambiente: ${stats.avg_atmosphere.toFixed(2)}/10, Meseros: ${stats.avg_waiter.toFixed(2)}/5. Ver detalle en el correo HTML.`
+      text: `Reporte de KPIs para Chili's. Total de encuestas: ${stats.total_responses}. Alimentos: ${stats.avg_food.toFixed(2)}/10, Ambiente: ${stats.avg_atmosphere.toFixed(2)}/10, Meseros: ${stats.avg_waiter.toFixed(2)}/5. Ver detalle en el correo HTML.`
     });
 
     return Response.json({ status: 'success' });
@@ -502,4 +516,183 @@ async function computeKPIs(db: D1Database): Promise<any> {
     recent_comments: commentsQuery.results || [],
     recent_responses: recentResponsesQuery.results || []
   };
+}
+
+async function computeKPIsForDate(db: D1Database, dateStr: string): Promise<any> {
+  const countRow = await db.prepare("SELECT COUNT(*) as total FROM responses WHERE date(created_at, '-6 hours') = ?").bind(dateStr).first() as { total: number };
+  const total = countRow ? countRow.total : 0;
+
+  if (total === 0) {
+    return {
+      total_responses: 0,
+      avg_food: 0,
+      avg_atmosphere: 0,
+      avg_waiter: 0,
+      avg_quality: 0,
+      avg_cost: 0,
+      avg_parking: 0,
+      manager_greeted_percentage: 0,
+      avg_karaoke_song: 0,
+      avg_karaoke_wait: 0,
+      recent_comments: []
+    };
+  }
+
+  const averages = await db.prepare(`
+    SELECT 
+      AVG(food_rating) as avg_food,
+      AVG(atmosphere_rating) as avg_atmosphere,
+      AVG(waiter_rating) as avg_waiter,
+      AVG(quality_rating) as avg_quality,
+      AVG(cost_rating) as avg_cost,
+      AVG(parking_rating) as avg_parking,
+      AVG(CASE WHEN manager_greeted = 1 THEN 1.0 ELSE 0.0 END) * 100 as manager_greeted_percentage,
+      AVG(CASE WHEN event_type = 'karaoke' AND event_rating_song_selection IS NOT NULL THEN event_rating_song_selection ELSE NULL END) as avg_karaoke_song,
+      AVG(CASE WHEN event_type = 'karaoke' AND event_rating_wait_time IS NOT NULL THEN event_rating_wait_time ELSE NULL END) as avg_karaoke_wait
+    FROM responses
+    WHERE date(created_at, '-6 hours') = ?
+  `).bind(dateStr).first() as any;
+
+  const commentsQuery = await db.prepare(`
+    SELECT customer_name, comments, created_at 
+    FROM responses 
+    WHERE date(created_at, '-6 hours') = ? AND comments IS NOT NULL AND comments != '' 
+    ORDER BY created_at DESC
+  `).bind(dateStr).all();
+
+  return {
+    total_responses: total,
+    avg_food: averages.avg_food || 0,
+    avg_atmosphere: averages.avg_atmosphere || 0,
+    avg_waiter: averages.avg_waiter || 0,
+    avg_quality: averages.avg_quality || 0,
+    avg_cost: averages.avg_cost || 0,
+    avg_parking: averages.avg_parking || 0,
+    manager_greeted_percentage: averages.manager_greeted_percentage || 0,
+    avg_karaoke_song: averages.avg_karaoke_song || 0,
+    avg_karaoke_wait: averages.avg_karaoke_wait || 0,
+    recent_comments: commentsQuery.results || []
+  };
+}
+
+async function handleScheduled(env: Env): Promise<void> {
+  const localTime = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const yesterday = new Date(localTime.getTime() - 24 * 60 * 60 * 1000);
+  const dateStr = yesterday.toISOString().split('T')[0];
+
+  const mgrEmail = await getConfig(env.DB, 'manager_email', '');
+  if (!mgrEmail) {
+    console.log('Cron: No manager email configured. Exiting.');
+    return;
+  }
+
+  const stats = await computeKPIsForDate(env.DB, dateStr);
+  const fromEmail = `reportes-diarios@chilis-encuestas.com`;
+  const subject = `Reporte Diario de Satisfacción - Chili's (${dateStr})`;
+
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px;">
+      <div style="text-align: center; border-bottom: 3px solid #c41230; padding-bottom: 15px; margin-bottom: 20px;">
+        <h2 style="color: #c41230; margin: 0; font-size: 24px;">Chili's</h2>
+        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">Reporte Diario de Satisfacción (${dateStr})</p>
+      </div>
+      
+      <p>Hola,</p>
+      <p>A continuación se presenta el resumen de las encuestas de satisfacción de los clientes registradas el día de ayer, <strong>${dateStr}</strong>.</p>
+      
+      <div style="background-color: #f9fafb; padding: 15px; border-radius: 6px; margin: 20px 0; border: 1px solid #e5e7eb;">
+        <h3 style="margin-top: 0; color: #111827; font-size: 16px;">Resumen de Participación</h3>
+        <p style="margin: 5px 0; font-size: 15px;"><strong>Total de Encuestas Recibidas:</strong> ${stats.total_responses}</p>
+      </div>
+
+      \${stats.total_responses > 0 ? \`
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px; font-size: 16px;">Métricas del Servicio (1 - 10)</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+          <tr style="background-color: #f9fafb;">
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Preparación Alimentos:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right; color: \${stats.avg_food < 7 ? '#ef4444' : '#111827'};\u0060}>\${stats.avg_food.toFixed(2)}/10</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Ambiente del Restaurante:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right;">\${stats.avg_atmosphere.toFixed(2)}/10</td>
+          </tr>
+          <tr style="background-color: #f9fafb;">
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Calidad de Productos:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right;">\${stats.avg_quality.toFixed(2)}/10</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Costo de Productos:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right;">\${stats.avg_cost.toFixed(2)}/10</td>
+          </tr>
+        </table>
+
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px; font-size: 16px;">Atención y Staff (1 - 5)</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+          <tr style="background-color: #f9fafb;">
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Servicio y Atención Mesero:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right; color: \${stats.avg_waiter < 3 ? '#ef4444' : '#111827'};\u0060}>\&nbsp;\${stats.avg_waiter.toFixed(2)}/5</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Parqueo y Asistencia:</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right;">\${stats.avg_parking.toFixed(2)}/5</td>
+          </tr>
+          <tr style="background-color: #f9fafb;">
+            <td style="padding: 8px; border: 1px solid #e5e7eb;"><strong>Saludó de Gerente (% de visitas):</strong></td>
+            <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; text-align: right;">\${(stats.manager_greeted_percentage).toFixed(1)}%</td>
+          </tr>
+        </table>
+
+        <h3 style="color: #c41230; border-bottom: 1px solid #f3f4f6; padding-bottom: 5px; font-size: 16px;">Comentarios de Clientes (\${stats.recent_comments.length})</h3>
+        <div style="font-size: 13px; color: #4b5563;">
+          \${stats.recent_comments.length === 0 ? '<p style="color: #9ca3af; font-style: italic;">No se registraron comentarios el día de ayer.</p>' : stats.recent_comments.map((c: any) => \`
+            <div style="border-bottom: 1px solid #f3f4f6; padding: 10px 0;">
+              <strong>\${c.customer_name}</strong>:
+              <p style="margin: 3px 0 0 0; font-style: italic; color: #1f2937;">"\${c.comments}"</p>
+            </div>
+          \`).join('')}
+        </div>
+      \` : \`
+        <p style="text-align: center; color: #9ca3af; font-style: italic; padding: 20px 0;">
+          No se registraron encuestas de satisfacción el día de ayer.
+        </p>
+      \`}
+
+      <p style="margin-top: 30px; font-size: 12px; color: #9ca3af; text-align: center; border-top: 1px solid #f3f4f6; padding-top: 15px;">
+        Este es un reporte automático del sistema Chili's. Por favor no responder a este correo.
+      </p>
+    </div>
+  `;
+
+  const emailText = `
+    Reporte Diario de Satisfacción - Chili's
+    Fecha: ${dateStr}
+    
+    Total de encuestas recibidas: \${stats.total_responses}
+    
+    \${stats.total_responses > 0 ? \`
+    Promedios (1-10):
+    - Preparación Alimentos: \${stats.avg_food.toFixed(2)}/10
+    - Ambiente: \${stats.avg_atmosphere.toFixed(2)}/10
+    - Calidad: \${stats.avg_quality.toFixed(2)}/10
+    - Costo: \${stats.avg_cost.toFixed(2)}/10
+    
+    Promedios (1-5):
+    - Meseros: \${stats.avg_waiter.toFixed(2)}/5
+    - Parqueo: \${stats.avg_parking.toFixed(2)}/5
+    - Saludo Gerente: \${stats.manager_greeted_percentage.toFixed(1)}%
+    \` : 'No se registraron encuestas ayer.'}
+  `;
+
+  try {
+    await env.EMAIL.send({
+      to: mgrEmail,
+      from: { email: fromEmail, name: "Reportes Diarios Chili's" },
+      subject: subject,
+      html: emailHtml,
+      text: emailText
+    });
+    console.log(`Daily stats email successfully sent to \${mgrEmail} for date \${dateStr}`);
+  } catch (err: any) {
+    console.error('Failed to send daily stats email:', err);
+  }
 }

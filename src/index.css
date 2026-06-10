@@ -3,10 +3,10 @@
 
 :root {
   /* Colors */
-  --primary: #8b1e3f; /* Deep Burgundy */
-  --primary-hover: #6c132f;
-  --secondary: #d4af37; /* Amber Gold */
-  --secondary-hover: #bda02e;
+  --primary: #c41230; /* Chili's Chili Red */
+  --primary-hover: #9e0e26;
+  --secondary: #006f3c; /* Chili's Green */
+  --secondary-hover: #00562e;
   --bg-main: #faf9f6; /* Elegant Cream */
   --bg-card: #ffffff;
   --text-main: #2b2b2b;

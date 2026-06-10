@@ -39,6 +39,8 @@ INSERT OR IGNORE INTO config (key, value) VALUES ('loyalty_strategy', 'discount'
 INSERT OR IGNORE INTO config (key, value) VALUES ('loyalty_discount_value', '10% de descuento en tu consumo final');
 INSERT OR IGNORE INTO config (key, value) VALUES ('loyalty_points_value', '100 puntos de lealtad');
 INSERT OR IGNORE INTO config (key, value) VALUES ('admin_password', 'restaurantplus2026');
-INSERT OR IGNORE INTO config (key, value) VALUES ('manager_email', 'henrychinchilla@gmail.com');
+INSERT OR IGNORE INTO config (key, value) VALUES ('manager_email', 'manager@restaurantplus.com');
 INSERT OR IGNORE INTO config (key, value) VALUES ('manager_phone', '+50212345678');
 INSERT OR IGNORE INTO config (key, value) VALUES ('manager_notifications_enabled', 'true');
+INSERT OR IGNORE INTO config (key, value) VALUES ('campaign_start', '2026-06-01');
+INSERT OR IGNORE INTO config (key, value) VALUES ('campaign_end', '2026-12-31');

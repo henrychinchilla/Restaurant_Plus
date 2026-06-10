@@ -4,15 +4,18 @@ import {
   Star, CheckCircle, MessageSquare, Settings, AlertCircle, 
   Phone, Mail, User, Music, Smile, Shield, Activity, 
   FileText, RefreshCw, Sliders, Download, LogOut, 
-  TrendingUp, Coffee, Sparkles, Share2, ClipboardList
+  TrendingUp, Sparkles, Share2, ClipboardList
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import chilisLogo from './assets/Chilis.jpg';
 
 // Interfaces
 interface SurveyConfig {
   loyalty_strategy: 'none' | 'discount' | 'points';
   loyalty_discount_value: string;
   loyalty_points_value: string;
+  campaign_start?: string;
+  campaign_end?: string;
 }
 
 interface AdminConfig extends SurveyConfig {
@@ -20,6 +23,8 @@ interface AdminConfig extends SurveyConfig {
   manager_phone: string;
   manager_notifications_enabled: string;
   admin_password?: string;
+  campaign_start?: string;
+  campaign_end?: string;
 }
 
 interface KPIStats {
@@ -42,7 +47,9 @@ export default function App() {
   const [surveyConfig, setSurveyConfig] = useState<SurveyConfig>({
     loyalty_strategy: 'none',
     loyalty_discount_value: '',
-    loyalty_points_value: ''
+    loyalty_points_value: '',
+    campaign_start: '',
+    campaign_end: ''
   });
   
   // Update browser history when toggling admin mode
@@ -82,20 +89,9 @@ export default function App() {
         alignItems: 'center',
         boxShadow: 'var(--shadow-sm)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => toggleAdminMode(false)}>
-          <div style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '50%',
-            backgroundColor: 'var(--primary)',
-            color: 'white',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 'bold',
-            fontFamily: 'var(--font-serif)'
-          }}>R+</div>
-          <span style={{ fontWeight: 'bold', fontSize: '18px', color: 'var(--primary)', fontFamily: 'var(--font-serif)' }}>Restaurant Plus</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }} onClick={() => toggleAdminMode(false)}>
+          <img src={chilisLogo} alt="Chili's Logo" style={{ height: '36px', borderRadius: '4px', objectFit: 'contain' }} />
+          <span style={{ fontWeight: 'bold', fontSize: '20px', color: 'var(--primary)', fontFamily: 'var(--font-serif)' }}>Chili's</span>
         </div>
         
         <button 
@@ -115,14 +111,52 @@ export default function App() {
       {isAdminMode ? (
         <AdminPanel />
       ) : (
-        <SurveyWizard config={surveyConfig} />
+        isCampaignActive(surveyConfig) ? (
+          <SurveyWizard config={surveyConfig} />
+        ) : (
+          <CampaignInactive config={surveyConfig} />
+        )
       )}
 
       {/* Footer */}
       <footer className="footer">
-        <p>&copy; {new Date().getFullYear()} Restaurant Plus. Todos los derechos reservados.</p>
+        <p>&copy; {new Date().getFullYear()} Chili's. Todos los derechos reservados.</p>
         <p style={{ marginTop: '4px', opacity: 0.6 }}>Evaluando calidad y servicio para consentirte.</p>
       </footer>
+    </div>
+  );
+}
+
+// Helper to check if campaign is active
+function isCampaignActive(config: SurveyConfig) {
+  if (!config.campaign_start || !config.campaign_end) return true;
+  const tzOffset = new Date().getTimezoneOffset() * 60000;
+  const todayStr = (new Date(Date.now() - tzOffset)).toISOString().slice(0, 10);
+  return todayStr >= config.campaign_start && todayStr <= config.campaign_end;
+}
+
+// Inactive campaign component
+function CampaignInactive({ config }: { config: SurveyConfig }) {
+  return (
+    <div className="container animate-fade-in" style={{ textAlign: 'center', padding: '40px 20px', flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="card" style={{ padding: '40px 32px', maxWidth: '500px', margin: '0 auto' }}>
+        <img src={chilisLogo} alt="Chili's" style={{ width: '150px', maxHeight: '80px', objectFit: 'contain', marginBottom: '24px' }} />
+        <h2 style={{ fontSize: '28px', color: 'var(--primary)', marginBottom: '16px' }}>Campaña Inactiva</h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: '15px', lineHeight: '1.6', marginBottom: '24px' }}>
+          Nuestra encuesta de satisfacción para clientes no se encuentra activa en este momento. ¡Agradecemos tu interés!
+        </p>
+        <div style={{ 
+          display: 'inline-block', 
+          backgroundColor: 'var(--bg-main)', 
+          border: '1px solid var(--border-color)', 
+          padding: '12px 20px', 
+          borderRadius: 'var(--radius-sm)',
+          fontSize: '13px',
+          color: 'var(--text-muted)'
+        }}>
+          Válida del: <strong style={{ color: 'var(--text-main)' }}>{config.campaign_start || 'N/A'}</strong> al <strong style={{ color: 'var(--text-main)' }}>{config.campaign_end || 'N/A'}</strong>
+        </div>
+      </div>
     </div>
   );
 }
@@ -374,11 +408,11 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
     <div className="container animate-fade-in">
       {/* Header Info */}
       <div className="header">
-        <div className="logo-icon">
-          <Coffee size={24} />
+        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+          <img src={chilisLogo} alt="Chili's" style={{ height: '60px', borderRadius: '4px', objectFit: 'contain' }} />
         </div>
         <h1 style={{ fontSize: '32px', marginBottom: '8px' }}>Tu Opinión Importa</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Ayúdanos a brindarte la mejor experiencia culinaria</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '15px' }}>Ayúdanos a brindarte la mejor experiencia en Chili's</p>
       </div>
 
       {/* Steps Progress Indicator */}
@@ -468,7 +502,22 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
               </div>
             </div>
             
-            <button type="button" onClick={nextStep} className="btn btn-primary btn-block" style={{ marginTop: '12px' }}>
+            <p style={{ 
+              fontSize: '11px', 
+              color: 'var(--text-muted)', 
+              marginTop: '16px', 
+              marginBottom: '16px',
+              lineHeight: '1.4', 
+              textAlign: 'justify',
+              backgroundColor: 'var(--bg-main)',
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-color)'
+            }}>
+              * <strong>Aviso de Privacidad:</strong> Sus datos serán guardados únicamente para el seguimiento y mejoramiento de nuestros servicios. Nos comprometemos a que los datos no serán compartidos con terceros. Al iniciar esta encuesta, usted autoriza el envío de información promocional y ofertas especiales de Chili's.
+            </p>
+
+            <button type="button" onClick={nextStep} className="btn btn-primary btn-block">
               Iniciar Encuesta
             </button>
           </div>
@@ -677,10 +726,11 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
               padding: '16px',
               borderRadius: 'var(--radius-sm)',
               marginBottom: '24px',
-              fontSize: '13px',
-              color: 'var(--text-muted)'
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              lineHeight: '1.4'
             }}>
-              Al hacer clic en "Enviar Encuesta", tus datos de contacto serán guardados y registrados en nuestro programa de clientes frecuentes de <strong>Restaurant Plus</strong> para poder enviarte promociones y beneficios especiales.
+              Al hacer clic en "Enviar Encuesta", confirma que autoriza el almacenamiento de sus datos para el seguimiento y mejoramiento de nuestros servicios. Nos comprometemos a no compartir sus datos con terceros y a utilizarlos únicamente para fines internos y envío de promociones.
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
@@ -734,7 +784,9 @@ function AdminPanel() {
     manager_email: '',
     manager_phone: '',
     manager_notifications_enabled: 'false',
-    admin_password: ''
+    admin_password: '',
+    campaign_start: '',
+    campaign_end: ''
   });
 
   const [activeTab, setActiveTab] = useState<'kpis' | 'config' | 'log' | 'qr'>('kpis');
@@ -940,7 +992,7 @@ function AdminPanel() {
         marginBottom: '24px'
       }}>
         <div>
-          <h1 style={{ fontSize: '28px', margin: 0, textAlign: 'left' }}>Dashboard Restaurant Plus</h1>
+          <h1 style={{ fontSize: '28px', margin: 0, textAlign: 'left' }}>Dashboard Chili's</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', textAlign: 'left' }}>
             Gestión de KPIs de satisfacción y estrategias de mercadeo.
           </p>
@@ -1129,7 +1181,7 @@ function AdminPanel() {
         <form onSubmit={handleUpdateConfig} className="card" style={{ textAlign: 'left' }}>
           <h3 style={{ fontSize: '20px', marginBottom: '8px' }}><Settings size={20} className="text-gold" style={{ display: 'inline', marginRight: '6px', verticalAlign: 'text-bottom' }} /> Ajustes de Negocio y Notificaciones</h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px' }}>
-            Configura las estrategias de fidelización de Restaurant Plus, alertas y accesos.
+            Configura las estrategias de fidelización de Chili's, alertas y accesos.
           </p>
 
           <h4 style={{ fontSize: '16px', color: 'var(--primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginBottom: '16px' }}>Estrategia de Fidelización</h4>
@@ -1182,6 +1234,34 @@ function AdminPanel() {
               </p>
             </div>
           )}
+
+          <h4 style={{ fontSize: '16px', color: 'var(--primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginBottom: '16px', marginTop: '32px' }}>Período de la Campaña</h4>
+          
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ flex: '1 1 200px' }}>
+              <label className="form-label" htmlFor="camp_start">Fecha de Inicio</label>
+              <input 
+                type="date" 
+                id="camp_start" 
+                className="form-input" 
+                value={config.campaign_start || ''}
+                onChange={(e) => setConfig({ ...config, campaign_start: e.target.value })}
+                required
+              />
+            </div>
+            
+            <div className="form-group" style={{ flex: '1 1 200px' }}>
+              <label className="form-label" htmlFor="camp_end">Fecha de Finalización</label>
+              <input 
+                type="date" 
+                id="camp_end" 
+                className="form-input" 
+                value={config.campaign_end || ''}
+                onChange={(e) => setConfig({ ...config, campaign_end: e.target.value })}
+                required
+              />
+            </div>
+          </div>
 
           <h4 style={{ fontSize: '16px', color: 'var(--primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginBottom: '16px', marginTop: '32px' }}>Alertas y Reportes (Responsable del Área)</h4>
 
@@ -1345,7 +1425,7 @@ function AdminPanel() {
         <div className="card" style={{ padding: '32px', textAlign: 'center' }}>
           <h3 style={{ fontSize: '20px', marginBottom: '8px', textAlign: 'left' }}>Código QR para Encuesta</h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px', textAlign: 'left' }}>
-            Imprime y coloca este código QR en las mesas, portafolios de cuentas o menú de Restaurant Plus. Al leer el código, los comensales serán redirigidos a esta página web.
+            Imprime y coloca este código QR en las mesas, portafolios de cuentas o menú de Chili's. Al leer el código, los comensales serán redirigidos a esta página web.
           </p>
 
           <div style={{
@@ -1360,7 +1440,7 @@ function AdminPanel() {
             flexDirection: 'column',
             alignItems: 'center'
           }}>
-            <h4 style={{ fontFamily: 'var(--font-serif)', color: 'var(--primary)', marginBottom: '4px', fontSize: '20px' }}>Restaurant Plus</h4>
+            <h4 style={{ fontFamily: 'var(--font-serif)', color: 'var(--primary)', marginBottom: '4px', fontSize: '20px' }}>Chili's</h4>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '24px' }}>¡Tu opinión nos ayuda a crecer!</p>
             
             <div style={{
@@ -1374,7 +1454,7 @@ function AdminPanel() {
                 value={window.location.origin} 
                 size={220}
                 bgColor={"#ffffff"}
-                fgColor={"#8b1e3f"}
+                fgColor={"#c41230"}
                 level={"H"}
                 includeMargin={true}
               />

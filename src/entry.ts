@@ -78,10 +78,26 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     });
   }
 
+  // 2a. GET /api/survey/validate-code (Public - checks a single-use receipt code)
+  if (method === 'GET' && url.pathname === '/api/survey/validate-code') {
+    const code = (url.searchParams.get('code') || '').trim().toUpperCase();
+    if (!code) {
+      return Response.json({ valid: false, error: 'Ingresa un código.' });
+    }
+    const row = await env.DB.prepare('SELECT used FROM survey_codes WHERE code = ?').bind(code).first() as { used: number } | null;
+    if (!row) {
+      return Response.json({ valid: false, error: 'Código no encontrado. Verifica que esté escrito correctamente.' });
+    }
+    if (row.used) {
+      return Response.json({ valid: false, error: 'Este código ya fue utilizado en otra encuesta.' });
+    }
+    return Response.json({ valid: true });
+  }
+
   // 2. POST /api/survey (Submit survey)
   if (method === 'POST' && url.pathname === '/api/survey') {
     const data = await request.json() as any;
-    
+
     // Validate required loyalty fields
     if (!data.customer_name || !data.customer_phone || !data.customer_email) {
       return new Response(JSON.stringify({ error: 'Name, phone and email are required.' }), {
@@ -89,6 +105,49 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         headers: { 'Content-Type': 'application/json' }
       });
     }
+
+    const surveyCode = (data.survey_code || '').trim().toUpperCase();
+    if (!surveyCode) {
+      return new Response(JSON.stringify({ error: 'Falta el código de tu recibo.' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Rate limit: block repeat submissions from the same phone or IP within a configurable window
+    const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const rateLimitHours = parseInt(await getConfig(env.DB, 'rate_limit_hours', '12'), 10) || 12;
+    const recentRow = await env.DB.prepare(
+      `SELECT COUNT(*) as count FROM responses WHERE (customer_phone = ? OR ip_address = ?) AND created_at >= datetime('now', '-' || ? || ' hours')`
+    ).bind(data.customer_phone, clientIp, rateLimitHours).first() as { count: number };
+    if (recentRow && recentRow.count > 0) {
+      return new Response(JSON.stringify({ error: 'Ya registramos una encuesta reciente con estos datos. Por favor espera antes de enviar otra.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Atomically claim the single-use receipt code (fails if missing or already used)
+    const claim = await env.DB.prepare('UPDATE survey_codes SET used = 1, used_at = CURRENT_TIMESTAMP WHERE code = ? AND used = 0')
+      .bind(surveyCode).run();
+    if (!claim.meta || claim.meta.changes === 0) {
+      return new Response(JSON.stringify({ error: 'Código de recibo inválido o ya utilizado.' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Statistical fraud flags (logged for admin review, do not block submission)
+    const flags: string[] = [];
+    const isPerfectScore = data.food_rating === 10 && data.quality_rating === 10 && data.cost_rating === 10 &&
+      data.atmosphere_rating === 10 && data.waiter_rating === 5 && data.parking_rating === 5;
+    if (isPerfectScore) flags.push('calificacion_perfecta');
+
+    const phoneHistory = await env.DB.prepare('SELECT COUNT(*) as count FROM responses WHERE customer_phone = ?')
+      .bind(data.customer_phone).first() as { count: number };
+    if (phoneHistory && phoneHistory.count > 0) flags.push('telefono_repetido');
+
+    const flagReason = flags.length > 0 ? flags.join(',') : null;
 
     // Get active configurations for rewards
     const loyaltyStrategy = await getConfig(env.DB, 'loyalty_strategy', 'none');
@@ -114,8 +173,8 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         quality_rating, cost_rating, manager_greeted, manager_name,
         parking_rating, event_type, event_rating_song_selection,
         event_rating_wait_time, event_rating_general, comments,
-        reward_sent, reward_details
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        reward_sent, reward_details, survey_code, ip_address, flag_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await env.DB.prepare(query)
@@ -138,7 +197,10 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
         data.event_rating_general || null,
         data.comments || null,
         rewardSent,
-        rewardDetails
+        rewardDetails,
+        surveyCode,
+        clientIp,
+        flagReason
       )
       .run();
 
@@ -300,6 +362,7 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     const adminPassword = await getConfig(env.DB, 'admin_password', 'restaurantplus2026');
     const campaignStart = await getConfig(env.DB, 'campaign_start', '2026-06-01');
     const campaignEnd = await getConfig(env.DB, 'campaign_end', '2026-12-31');
+    const rateLimitHours = await getConfig(env.DB, 'rate_limit_hours', '12');
 
     return Response.json({
       loyalty_strategy: loyaltyStrategy,
@@ -310,14 +373,15 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
       manager_notifications_enabled: managerNotifs,
       admin_password: adminPassword,
       campaign_start: campaignStart,
-      campaign_end: campaignEnd
+      campaign_end: campaignEnd,
+      rate_limit_hours: rateLimitHours
     });
   }
 
   // 6. POST /api/admin/config (Update configuration)
   if (method === 'POST' && url.pathname === '/api/admin/config') {
     const data = await request.json() as any;
-    
+
     const updates = [];
     if (data.loyalty_strategy !== undefined) updates.push(setConfig(env.DB, 'loyalty_strategy', data.loyalty_strategy));
     if (data.loyalty_discount_value !== undefined) updates.push(setConfig(env.DB, 'loyalty_discount_value', data.loyalty_discount_value));
@@ -328,10 +392,34 @@ async function handleAPI(request: Request, env: Env, url: URL): Promise<Response
     if (data.admin_password !== undefined) updates.push(setConfig(env.DB, 'admin_password', data.admin_password));
     if (data.campaign_start !== undefined) updates.push(setConfig(env.DB, 'campaign_start', data.campaign_start));
     if (data.campaign_end !== undefined) updates.push(setConfig(env.DB, 'campaign_end', data.campaign_end));
+    if (data.rate_limit_hours !== undefined) updates.push(setConfig(env.DB, 'rate_limit_hours', data.rate_limit_hours));
 
     await Promise.all(updates);
 
     return Response.json({ status: 'success' });
+  }
+
+  // 6a. GET /api/admin/codes (List single-use survey codes)
+  if (method === 'GET' && url.pathname === '/api/admin/codes') {
+    const result = await env.DB.prepare('SELECT code, used, created_at, used_at FROM survey_codes ORDER BY created_at DESC LIMIT 500').all();
+    return Response.json(result.results || []);
+  }
+
+  // 6b. POST /api/admin/codes/generate (Generate single-use survey codes)
+  if (method === 'POST' && url.pathname === '/api/admin/codes/generate') {
+    const data = await request.json() as any;
+    const count = Math.min(Math.max(parseInt(data.count) || 1, 1), 200);
+
+    const codes: string[] = [];
+    for (let i = 0; i < count; i++) {
+      codes.push(generateSurveyCode());
+    }
+
+    await env.DB.batch(
+      codes.map(code => env.DB.prepare('INSERT OR IGNORE INTO survey_codes (code) VALUES (?)').bind(code))
+    );
+
+    return Response.json({ status: 'success', codes });
   }
 
   // 7. POST /api/admin/report (Send on-demand email report)
@@ -453,6 +541,18 @@ async function setConfig(db: D1Database, key: string, value: string): Promise<vo
     .run();
 }
 
+// Generates a single-use receipt code, avoiding visually ambiguous characters (0/O, 1/I/L)
+function generateSurveyCode(): string {
+  const charset = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += charset[bytes[i] % charset.length];
+  }
+  return code;
+}
+
 async function computeKPIs(db: D1Database): Promise<any> {
   const countRow = await db.prepare('SELECT COUNT(*) as total FROM responses').first() as { total: number };
   const total = countRow ? countRow.total : 0;
@@ -469,13 +569,14 @@ async function computeKPIs(db: D1Database): Promise<any> {
       manager_greeted_percentage: 0,
       avg_karaoke_song: 0,
       avg_karaoke_wait: 0,
+      flagged_count: 0,
       recent_comments: [],
       recent_responses: []
     };
   }
 
   const averages = await db.prepare(`
-    SELECT 
+    SELECT
       AVG(food_rating) as avg_food,
       AVG(atmosphere_rating) as avg_atmosphere,
       AVG(waiter_rating) as avg_waiter,
@@ -488,17 +589,21 @@ async function computeKPIs(db: D1Database): Promise<any> {
     FROM responses
   `).first() as any;
 
+  const flaggedRow = await db.prepare(
+    "SELECT COUNT(*) as count FROM responses WHERE flag_reason IS NOT NULL AND flag_reason != ''"
+  ).first() as { count: number };
+
   const commentsQuery = await db.prepare(`
-    SELECT customer_name, comments, created_at 
-    FROM responses 
-    WHERE comments IS NOT NULL AND comments != '' 
-    ORDER BY created_at DESC 
+    SELECT customer_name, comments, created_at
+    FROM responses
+    WHERE comments IS NOT NULL AND comments != ''
+    ORDER BY created_at DESC
     LIMIT 5
   `).all();
-  
+
   const recentResponsesQuery = await db.prepare(`
-    SELECT * FROM responses 
-    ORDER BY created_at DESC 
+    SELECT * FROM responses
+    ORDER BY created_at DESC
     LIMIT 20
   `).all();
 
@@ -513,6 +618,7 @@ async function computeKPIs(db: D1Database): Promise<any> {
     manager_greeted_percentage: averages.manager_greeted_percentage || 0,
     avg_karaoke_song: averages.avg_karaoke_song || 0,
     avg_karaoke_wait: averages.avg_karaoke_wait || 0,
+    flagged_count: flaggedRow ? flaggedRow.count : 0,
     recent_comments: commentsQuery.results || [],
     recent_responses: recentResponsesQuery.results || []
   };

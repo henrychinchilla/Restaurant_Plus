@@ -854,15 +854,25 @@ function AdminPanel() {
         handleLogout();
         return;
       }
-      const statsData = await statsRes.json();
-      setStats(statsData as KPIStats);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData as KPIStats);
+      } else {
+        const errorData = await statsRes.json().catch(() => null) as any;
+        console.error('Failed to load admin stats:', errorData?.error || statsRes.statusText);
+      }
 
       // Load config
       const configRes = await fetch('/api/admin/config', {
         headers: { 'Authorization': pw }
       });
-      const configData = await configRes.json();
-      setConfig(configData as AdminConfig);
+      if (configRes.ok) {
+        const configData = await configRes.json();
+        setConfig(configData as AdminConfig);
+      } else {
+        const errorData = await configRes.json().catch(() => null) as any;
+        console.error('Failed to load admin config:', errorData?.error || configRes.statusText);
+      }
     } catch (err) {
       console.error('Error loading admin dashboard details:', err);
     }

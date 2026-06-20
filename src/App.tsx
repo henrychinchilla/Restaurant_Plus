@@ -1,10 +1,11 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
-import { 
-  Star, CheckCircle, MessageSquare, Settings, AlertCircle, 
-  Phone, Mail, User, Music, Smile, Shield, Activity, 
-  FileText, RefreshCw, Sliders, Download, LogOut, 
-  TrendingUp, Sparkles, Share2, ClipboardList
+import {
+  Star, CheckCircle, MessageSquare, Settings, AlertCircle,
+  Phone, Mail, User, Music, Smile, Shield, Activity,
+  FileText, RefreshCw, Sliders, Download, LogOut,
+  TrendingUp, Sparkles, Share2, ClipboardList, Ticket, Copy,
+  ShieldAlert, ShieldCheck
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import chilisLogo from './assets/Chilis.jpg';
@@ -25,6 +26,7 @@ interface AdminConfig extends SurveyConfig {
   admin_password?: string;
   campaign_start?: string;
   campaign_end?: string;
+  rate_limit_hours?: string;
 }
 
 interface KPIStats {
@@ -38,8 +40,16 @@ interface KPIStats {
   manager_greeted_percentage: number;
   avg_karaoke_song: number;
   avg_karaoke_wait: number;
+  flagged_count: number;
   recent_comments: Array<{ customer_name: string; comments: string; created_at: string }>;
   recent_responses: Array<any>;
+}
+
+interface SurveyCode {
+  code: string;
+  used: number;
+  created_at: string;
+  used_at: string | null;
 }
 
 export default function App() {
@@ -175,7 +185,12 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  
+
+  const [surveyCode, setSurveyCode] = useState('');
+  const [codeValid, setCodeValid] = useState(false);
+  const [codeChecking, setCodeChecking] = useState(false);
+  const [codeMsg, setCodeMsg] = useState('');
+
   const [foodRating, setFoodRating] = useState<number | null>(null);
   const [qualityRating, setQualityRating] = useState<number | null>(null);
   const [costRating, setCostRating] = useState<number | null>(null);
@@ -194,9 +209,35 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
 
   const [comments, setComments] = useState('');
 
+  const validateCode = async () => {
+    const code = surveyCode.trim();
+    if (!code) {
+      setCodeMsg('Ingresa el código de tu recibo.');
+      setCodeValid(false);
+      return;
+    }
+    setCodeChecking(true);
+    setCodeMsg('');
+    try {
+      const res = await fetch(`/api/survey/validate-code?code=${encodeURIComponent(code)}`);
+      const result = await res.json() as { valid: boolean; error?: string };
+      setCodeValid(result.valid);
+      setCodeMsg(result.valid ? 'Código válido. ¡Puedes continuar!' : (result.error || 'Código inválido.'));
+    } catch {
+      setCodeValid(false);
+      setCodeMsg('Error de conexión al validar el código.');
+    } finally {
+      setCodeChecking(false);
+    }
+  };
+
   const nextStep = () => {
     if (step === 1 && (!customerName || !customerPhone || !customerEmail)) {
       setError('Por favor, ingresa tu nombre, teléfono y correo electrónico para continuar.');
+      return;
+    }
+    if (step === 1 && !codeValid) {
+      setError('Por favor, ingresa y valida el código de tu recibo o mesa para continuar.');
       return;
     }
     if (step === 2 && (foodRating === null || qualityRating === null || costRating === null || atmosphereRating === null)) {
@@ -249,7 +290,8 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
       event_rating_song_selection: eventType === 'karaoke' ? eventSongRating : null,
       event_rating_wait_time: eventType === 'karaoke' ? eventWaitRating : null,
       event_rating_general: eventType !== 'karaoke' && eventType !== 'none' ? eventGeneralRating : null,
-      comments: comments
+      comments: comments,
+      survey_code: surveyCode.trim()
     };
 
     try {
@@ -382,6 +424,9 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
               setCustomerName('');
               setCustomerPhone('');
               setCustomerEmail('');
+              setSurveyCode('');
+              setCodeValid(false);
+              setCodeMsg('');
               setFoodRating(null);
               setQualityRating(null);
               setCostRating(null);
@@ -501,13 +546,57 @@ function SurveyWizard({ config }: { config: SurveyConfig }) {
                 />
               </div>
             </div>
-            
-            <p style={{ 
-              fontSize: '11px', 
-              color: 'var(--text-muted)', 
-              marginTop: '16px', 
+
+            <div className="form-group">
+              <label className="form-label" htmlFor="surveyCode">Código de Recibo/Mesa</label>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Ingresa el código impreso en tu recibo o tarjeta de mesa.
+              </p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}><Ticket size={18} /></span>
+                  <input
+                    type="text"
+                    id="surveyCode"
+                    className="form-input"
+                    placeholder="Ej. AB23CD"
+                    value={surveyCode}
+                    onChange={(e) => { setSurveyCode(e.target.value.toUpperCase()); setCodeValid(false); setCodeMsg(''); }}
+                    style={{ paddingLeft: '40px', textTransform: 'uppercase' }}
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={validateCode}
+                  disabled={codeChecking || !surveyCode.trim()}
+                  className="btn btn-secondary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {codeChecking ? 'Validando...' : 'Validar'}
+                </button>
+              </div>
+              {codeMsg && (
+                <p style={{
+                  fontSize: '13px',
+                  marginTop: '8px',
+                  color: codeValid ? 'var(--success)' : 'var(--danger)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  {codeValid ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                  {codeMsg}
+                </p>
+              )}
+            </div>
+
+            <p style={{
+              fontSize: '11px',
+              color: 'var(--text-muted)',
+              marginTop: '16px',
               marginBottom: '16px',
-              lineHeight: '1.4', 
+              lineHeight: '1.4',
               textAlign: 'justify',
               backgroundColor: 'var(--bg-main)',
               padding: '10px 12px',
@@ -773,10 +862,11 @@ function AdminPanel() {
     manager_greeted_percentage: 0,
     avg_karaoke_song: 0,
     avg_karaoke_wait: 0,
+    flagged_count: 0,
     recent_comments: [],
     recent_responses: []
   });
-  
+
   const [config, setConfig] = useState<AdminConfig>({
     loyalty_strategy: 'none',
     loyalty_discount_value: '',
@@ -786,13 +876,19 @@ function AdminPanel() {
     manager_notifications_enabled: 'false',
     admin_password: '',
     campaign_start: '',
-    campaign_end: ''
+    campaign_end: '',
+    rate_limit_hours: '12'
   });
 
-  const [activeTab, setActiveTab] = useState<'kpis' | 'config' | 'log' | 'qr'>('kpis');
+  const [activeTab, setActiveTab] = useState<'kpis' | 'config' | 'log' | 'qr' | 'codes'>('kpis');
   const [updatingConfig, setUpdatingConfig] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Survey codes state
+  const [codes, setCodes] = useState<SurveyCode[]>([]);
+  const [generateCount, setGenerateCount] = useState(20);
+  const [generatingCodes, setGeneratingCodes] = useState(false);
 
   // Attempt login using saved password if available
   useEffect(() => {
@@ -873,6 +969,15 @@ function AdminPanel() {
         const errorData = await configRes.json().catch(() => null) as any;
         console.error('Failed to load admin config:', errorData?.error || configRes.statusText);
       }
+
+      // Load survey codes
+      const codesRes = await fetch('/api/admin/codes', {
+        headers: { 'Authorization': pw }
+      });
+      if (codesRes.ok) {
+        const codesData = await codesRes.json();
+        setCodes(codesData as SurveyCode[]);
+      }
     } catch (err) {
       console.error('Error loading admin dashboard details:', err);
     }
@@ -880,6 +985,31 @@ function AdminPanel() {
 
   const triggerRefresh = () => {
     loadAdminData(password);
+  };
+
+  const handleGenerateCodes = async () => {
+    setGeneratingCodes(true);
+    setSuccessMsg('');
+    try {
+      const res = await fetch('/api/admin/codes/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': password
+        },
+        body: JSON.stringify({ count: generateCount })
+      });
+      if (res.ok) {
+        setSuccessMsg('Códigos generados con éxito.');
+        triggerRefresh();
+      } else {
+        alert('Error al generar los códigos.');
+      }
+    } catch (err) {
+      alert('Error de conexión al generar los códigos.');
+    } finally {
+      setGeneratingCodes(false);
+    }
   };
 
   const handleUpdateConfig = async (e: React.FormEvent) => {
@@ -1039,6 +1169,9 @@ function AdminPanel() {
         <button className={`tab-btn ${activeTab === 'qr' ? 'active' : ''}`} onClick={() => { setActiveTab('qr'); setSuccessMsg(''); }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Share2 size={16} /> Código QR</span>
         </button>
+        <button className={`tab-btn ${activeTab === 'codes' ? 'active' : ''}`} onClick={() => { setActiveTab('codes'); setSuccessMsg(''); }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Ticket size={16} /> Códigos de Encuesta</span>
+        </button>
       </div>
 
       {/* TAB 1: METRICS & KPIS */}
@@ -1074,6 +1207,12 @@ function AdminPanel() {
               <span className="kpi-title">Parqueo (1-5)</span>
               <span className="kpi-value">{stats.avg_parking.toFixed(2)}</span>
               <span className="kpi-footer">Asistencia y comodidad</span>
+            </div>
+
+            <div className={`kpi-card ${stats.flagged_count === 0 ? 'kpi-success' : 'kpi-danger'}`}>
+              <span className="kpi-title">Respuestas Sospechosas</span>
+              <span className="kpi-value">{stats.flagged_count}</span>
+              <span className="kpi-footer">Marcadas para revisión manual</span>
             </div>
           </div>
 
@@ -1316,6 +1455,25 @@ function AdminPanel() {
             </p>
           </div>
 
+          <h4 style={{ fontSize: '16px', color: 'var(--primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginBottom: '16px', marginTop: '32px' }}>Seguridad y Anti-Fraude</h4>
+
+          <div className="form-group">
+            <label className="form-label" htmlFor="rate_limit_hours">Ventana de Límite de Envíos Repetidos (horas)</label>
+            <input
+              type="number"
+              id="rate_limit_hours"
+              className="form-input"
+              min={1}
+              placeholder="12"
+              value={config.rate_limit_hours || ''}
+              onChange={(e) => setConfig({ ...config, rate_limit_hours: e.target.value })}
+              required
+            />
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              No se permitirá más de una encuesta por el mismo teléfono o dirección IP dentro de esta cantidad de horas.
+            </p>
+          </div>
+
           <h4 style={{ fontSize: '16px', color: 'var(--primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px', marginBottom: '16px', marginTop: '32px' }}>Seguridad del Panel</h4>
 
           <div className="form-group">
@@ -1361,12 +1519,13 @@ function AdminPanel() {
                   <th>Gerente</th>
                   <th>Fidelización</th>
                   <th>Fecha</th>
+                  <th>Estado</th>
                 </tr>
               </thead>
               <tbody>
                 {stats.recent_responses.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
                       No se han registrado encuestas todavía.
                     </td>
                   </tr>
@@ -1420,6 +1579,17 @@ function AdminPanel() {
                           {new Date(row.created_at).toLocaleDateString()}<br/>
                           {new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
+                      </td>
+                      <td>
+                        {row.flag_reason ? (
+                          <span className="badge badge-danger" title={row.flag_reason} style={{ display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                            <ShieldAlert size={12} /> Sospechosa
+                          </span>
+                        ) : (
+                          <span className="badge badge-success" style={{ display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                            <ShieldCheck size={12} /> Normal
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -1499,6 +1669,97 @@ function AdminPanel() {
             >
               <Download size={18} /> Descargar Imagen QR
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: SURVEY CODES */}
+      {activeTab === 'codes' && (
+        <div>
+          <div className="card" style={{ padding: '24px', textAlign: 'left', marginBottom: '24px' }}>
+            <h3 style={{ fontSize: '20px', marginBottom: '8px' }}><Ticket size={20} className="text-gold" style={{ display: 'inline', marginRight: '6px', verticalAlign: 'text-bottom' }} /> Generar Códigos de Encuesta</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '16px' }}>
+              Genera códigos de un solo uso para imprimir en recibos o tarjetas de mesa. Cada código solo puede usarse para enviar una encuesta.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ marginBottom: 0, flex: '0 1 160px' }}>
+                <label className="form-label" htmlFor="gen_count">Cantidad a generar</label>
+                <input
+                  type="number"
+                  id="gen_count"
+                  className="form-input"
+                  min={1}
+                  max={200}
+                  value={generateCount}
+                  onChange={(e) => setGenerateCount(parseInt(e.target.value, 10) || 1)}
+                />
+              </div>
+              <button
+                onClick={handleGenerateCodes}
+                className="btn btn-primary"
+                disabled={generatingCodes}
+              >
+                {generatingCodes ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="spinner"></span> Generando...
+                  </span>
+                ) : (
+                  'Generar Códigos'
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '24px', textAlign: 'left' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '16px' }}>Códigos Existentes ({codes.length})</h3>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Estado</th>
+                    <th>Creado</th>
+                    <th>Usado</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {codes.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)' }}>
+                        Aún no se han generado códigos.
+                      </td>
+                    </tr>
+                  ) : (
+                    codes.map((c) => (
+                      <tr key={c.code}>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{c.code}</td>
+                        <td>
+                          {c.used ? (
+                            <span className="badge badge-danger">Usado</span>
+                          ) : (
+                            <span className="badge badge-success">Pendiente</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: '12px' }}>{new Date(c.created_at).toLocaleDateString()}</td>
+                        <td style={{ fontSize: '12px' }}>{c.used_at ? new Date(c.used_at).toLocaleDateString() : '-'}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            onClick={() => navigator.clipboard.writeText(c.code)}
+                            title="Copiar código"
+                          >
+                            <Copy size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
